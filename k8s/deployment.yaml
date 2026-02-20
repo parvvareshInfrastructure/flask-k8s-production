@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-app
+  namespace: demo
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: flask-app
+  template:
+    metadata:
+      labels:
+        app: flask-app
+    spec:
+      containers:
+        - name: flask
+          image: flask-k8s-demo:1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5000
+
+          env:
+            - name: APP_MESSAGE
+              valueFrom:
+                configMapKeyRef:
+                  name: flask-config
+                  key: APP_MESSAGE
+            - name: APP_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: flask-config
+                  key: APP_VERSION
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: flask-secret
+                  key: API_KEY
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 2
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
