@@ -1,0 +1,69 @@
+name: Deploy to Kubernetes
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      image_tag:
+        description: 'Docker image tag to deploy'
+        required: true
+        default: 'latest'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v4
+      with:
+        version: 'latest'
+
+    - name: Configure Kubernetes context
+      uses: azure/k8s-set-context@v4
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBECONFIG }}
+
+    - name: Update image tag in deployment
+      run: |
+        sed -i "s|image: flask-k8s-demo:.*|image: ${{ env.REGISTRY }}/${{ github.repository }}:${{ inputs.image_tag }}|g" k8s/deployment.yaml
+
+    - name: Deploy to Kubernetes
+      run: |
+        kubectl apply -f k8s/namespace.yaml
+        kubectl apply -f k8s/configmap.yaml
+        kubectl apply -f k8s/secret.yaml
+        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/service.yaml
+        kubectl apply -f k8s/ingress.yaml
+        kubectl apply -f k8s/hpa.yaml
+
+    - name: Wait for rollout to complete
+      run: |
+        kubectl rollout status deployment/flask-app -n demo --timeout=5m
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -n demo
+        kubectl get svc -n demo
+        kubectl get ingress -n demo
+
+    - name: Run smoke tests
+      run: |
+        # Port forward and test the health endpoint
+        kubectl port-forward -n demo svc/flask-svc 8080:80 &
+        sleep 5
+        curl -f http://localhost:8080/health || exit 1
+        echo "Smoke tests passed!"
